@@ -1,10 +1,19 @@
-CFLAGS = -O3
-OBJS = data.o text.o
+CFLAGS += -O3
+bin = a.out
+objs = data.o text.o
 
-a.out: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS)
+.c.o:
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+all: $(bin)
+
+$(bin): $(objs)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(objs)
 
 data.o: xaa xab xac
 
 clean:
-	rm -f a.out $(OBJS)
+	rm -f $(bin) $(objs:data.o=)
+
+distclean: clean
+	rm -f data.o
