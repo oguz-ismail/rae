@@ -14,8 +14,15 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <errno.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
+
+#ifdef NOLIBC
+#undef errno
+int errno;
+#endif
 
 #define INDEX(x) ((x) > 10 ? 9 + (x)%8 : (x)-1)
 #define SLICE(x, i, n) ((x)>>(i) & (1<<(n))-1)
@@ -23,6 +30,46 @@
 static int num[6], target;
 extern const int answer[];
 static int seq, ops;
+static int tty;
+static char buf[4096];
+static int len;
+
+static int
+next(int *p) {
+	static char a[sizeof buf];
+	static int n, i;
+	int err, x;
+	int ret, c;
+	err = 1;
+	x = 0;
+	for (; ; i++) {
+		if (i >= n) {
+			do
+				ret = read(0, a, sizeof a);
+			while (ret == -1 && errno == EINTR);
+			if (ret == -1)
+				return 1;
+			if (ret == 0) {
+				err = -err;
+				break;
+			}
+			n = ret;
+			i = 0;
+		}
+		c = a[i];
+		if (err && (c == ' ' || c == '\n' || c == '\t'))
+			continue;
+		if (c < '0' || c > '9')
+			break;
+		if (x > 127)
+			return 1;
+		x = x*10 + c-'0';
+		err = 0;
+	}
+	if (!err)
+		*p = x;
+	return err;
+}
 
 static int
 valid(void) {
@@ -46,18 +93,20 @@ valid(void) {
 
 static int
 r(void) {
-	switch (scanf(" %d %d %d %d %d %d %d",
-		&num[0], &num[1], &num[2], &num[3],
-		&num[4], &num[5], &target)) {
-	case 7:
-		if (valid())
+	int i;
+	for (i = 0; i < 6; i++)
+		switch (next(&num[i])) {
+		case -1:
+			if (i == 0)
+				return -1;
+		case 1:
 			return 1;
-	default:
-		fputs("bad input\n", stderr);
-		exit(1);
-	case EOF:
-		return 0;
-	}
+		}
+	if (next(&target) != 0)
+		return 1;
+	if (!valid())
+		return 1;
+	return 0;
 }
 
 static int
@@ -143,7 +192,42 @@ e(void) {
 }
 
 static void
+buffer(const char *s) {
+	for (; *s; s++)
+		buf[len++] = *s;
+}
+
+static const char *
+string(int x) {
+	static char a[16];
+	char *p;
+	p = &a[(sizeof a)-1];
+	do {
+		*--p = '0' + x%10;
+		x /= 10;
+	}
+	while (x);
+	return p;
+}
+
+static void
+flush(void) {
+	int i, ret;
+	for (i = 0; i < len; i += ret) {
+		do
+			ret = write(1, &buf[i], len-i);
+		while (ret == -1 && errno == EINTR);
+		if (ret == -1)
+			break;
+	}
+	len = 0;
+}
+
+static void
 p(void) {
+	const char *sym[] = {
+		" + ", " - ", " * ", " / ",
+	};
 	int stk[6], i, j;
 	int x, y, z;
 	i = j = 0;
@@ -158,20 +242,35 @@ p(void) {
 			case 3: z = x / y; break;
 			}
 			stk[i++] = z;
-			printf("%d %c %d = %d\n",
-				x, "+-*/"[ops & 3], y, z);
+			buffer(string(x));
+			buffer(sym[ops & 3]);
+			buffer(string(y));
+			buffer(" = ");
+			buffer(string(z));
+			buffer("\n");
 			ops >>= 2;
 		}
 		else {
 			stk[i++] = num[j++];
 		}
-	puts("");
+	buffer("\n");
+	if (tty || len > (sizeof buf)-128)
+		flush();
 }
 
 int
 main(void) {
-	while (r()) {
+	const char s[] = "bad input\n";
+	struct termios t;
+	int err;
+	tty = ioctl(1, TCGETS, &t) == 0;
+	while (!(err = r())) {
 		e();
 		p();
 	}
+	if (err != -1) {
+		write(2, s, (sizeof s)-1);
+		return 1;
+	}
+	flush();
 }
