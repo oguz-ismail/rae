@@ -15,6 +15,7 @@
  */
 
 #include <errno.h>
+#include <stdint.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -28,11 +29,11 @@ int errno;
 #define SLICE(x, i, n) ((x)>>(i) & (1<<(n))-1)
 
 static int num[6], target;
-extern const int answer[];
 static int seq, ops;
 static int tty;
 static char buf[4096];
 static int len;
+extern const short nCk[][7];
 
 static int
 next(int *p) {
@@ -106,32 +107,17 @@ r(void) {
 }
 
 static int
-binom(int n, int k) {
-	int x, i;
-	if (k > n)
-		return 0;
-	x = 1;
-	for (i = 0; i < k; i++) {
-		x *= n-i;
-		x /= i+1;
-	}
-	return x;
-}
-
-static int
 rank(const int *c, int k) {
 	int x, i;
 	x = 0;
 	for (i = 0; i < k; i++)
-		x += binom(c[i], i+1);
+		x += nCk[c[i]][i+1];
 	return x;
 }
 
 static int
 section(const int *c) {
-	static const int off[] = {
-		0, 3003, 10153, 13123,
-	};
+	extern const short off[];
 	int dupe[3], m;
 	int uniq[6], n;
 	int i;
@@ -142,7 +128,7 @@ section(const int *c) {
 		else
 			uniq[n++] = c[i]-m;
 	return off[m]
-		+ rank(dupe, m)*binom(14-m, n)
+		+ rank(dupe, m)*nCk[14-m][n]
 		+ rank(uniq, n);
 }
 
@@ -173,8 +159,9 @@ lehmer(int dec) {
 
 static void
 e(void) {
+	extern const int32_t answer[];
 	int i, j, x;
-	int bits;
+	int32_t bits;
 	for (i = 1; i < 6; i++) {
 		x = num[i];
 		for (j = i; j && x < num[j-1]; j--)
@@ -195,8 +182,11 @@ buffer(const char *s) {
 
 static const char *
 string(int x) {
+	extern const char lut[];
 	static char a[16];
 	char *p;
+	if (x < 1000)
+		return &lut[x*4];
 	p = &a[(sizeof a)-1];
 	do {
 		*--p = '0' + x%10;
